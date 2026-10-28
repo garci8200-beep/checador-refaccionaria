@@ -1,0 +1,862 @@
+
+<!doctype html>
+<html lang="es" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#FFFFFF">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="POS">
+  <meta name="description" content="Sistema Punto de Venta — funciona offline y con internet lento">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='70' font-size='54' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'%3EP%3C/text%3E%3C/svg%3E">
+  <title>Sistema POS</title>
+  <!-- Conexiones anticipadas: recortan 200-600ms con datos móviles débiles -->
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="dns-prefetch" href="https://www.gstatic.com">
+  <!-- JS propio: TODO vive en ./app.js (módulo único, diferido). Boot/config/tema migrados ahí. -->
+  <style>html.perf-early,html.perf-early body{background:#FFFFFF;}html.perf-early .mesh-orb,html.perf-early .noise-overlay,html.perf-early #admin-root>header::after,html.perf-early #sidebar::after{display:none!important;}body.perf-mode .mesh-orb{display:none!important;}</style>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <!-- tailwind.config vive en ./app.js [3] (requiere el global `tailwind` de arriba). -->
+  <!-- Librerías diferidas en orden de uso: iconos → códigos → búsqueda (defer conserva el orden). -->
+  <script defer src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" as="style">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <style>
+html { color-scheme: light; } /* La barra de estados del iPhone (reloj/batería) sigue el color-scheme del ROOT, no el de los hijos */
+* { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif; color-scheme: light; }
+    /* Números tabulares: todos los dígitos con el mismo ancho (Apple) — precios, totales, reloj y cantidades no brincan al cambiar */
+    * { font-variant-numeric: tabular-nums; }
+    /* Sin rebote elástico al llegar al tope o fondo del scroll */
+    html, body { overscroll-behavior: none; }
+    html[data-theme="dark"] { color-scheme: dark; }
+    html[data-theme="dark"] * { color-scheme: dark; }
+    /* En modo oscuro los bordes dobles se reducen a finos (estilo negro y blanco) */
+    html[data-theme="dark"] .border-2 { border-width: 1px !important; }
+    html[data-theme="dark"] .border { border-width: 1px !important; }
+    /* En modo oscuro el "blanco translúcido" (principal) debe quedar como gris oscuro paq leer el texto claro encima */
+    html[data-theme="dark"] .bg-accent\/5,
+    html[data-theme="dark"] .bg-accent\/10,
+    html[data-theme="dark"] .bg-accent\/15,
+    html[data-theme="dark"] .bg-accent\/20,
+    html[data-theme="dark"] .bg-accent\/30,
+    html[data-theme="dark"] .bg-accent\/40 {
+      background-color: rgb(255 255 255 / 0.08);
+    }
+    html[data-theme="dark"] .border-accent\/10,
+    html[data-theme="dark"] .border-accent\/20,
+    html[data-theme="dark"] .border-accent\/30,
+    html[data-theme="dark"] .border-accent\/40 {
+      border-color: rgb(115 115 115 / 0.45);
+    }
+
+    /* === TRANSICIÓN DE TEMA PREMIUM (estilo iOS 18): círculo que se expande desde donde pulsaste === */
+    :root { --theme-x: 50%; --theme-y: 50%; }
+    /* Suavizado de respaldo (fondo) para navegadores sin View Transitions */
+    body { transition: background-color .35s ease; }
+    ::view-transition-old(root),
+    ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+    ::view-transition-old(root) { z-index: 1; }
+    ::view-transition-new(root) { z-index: 9999; animation: theme-reveal .95s cubic-bezier(.22,1,.36,1) both; }
+    /* Mancha de tinta: el tema nuevo nace del punto tocado, se expande con un
+       leve desenfoque orgánico y se asienta nítido al cubrir la pantalla */
+    @keyframes theme-reveal {
+      0% { clip-path: circle(0% at var(--theme-x) var(--theme-y)); filter: blur(5px) brightness(1.09); }
+      45% { filter: blur(0) brightness(1); }
+      100% { clip-path: circle(150% at var(--theme-x) var(--theme-y)); filter: blur(0) brightness(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
+      body { transition: none; }
+    }
+    /* Respaldo premium sin View Transitions: onda circular manual (la crea el JS) */
+    .theme-ripple-fallback { position: fixed; z-index: 99990; border-radius: 9999px; pointer-events: none; transform: translate(-50%, -50%); }
+    /* Giro del icono sol/luna al cambiar de tema */
+    .theme-toggle.theme-spin { animation: themeSpin .55s cubic-bezier(.22,1,.36,1); }
+    @keyframes themeSpin { 0% { transform: rotate(0) scale(1); } 45% { transform: rotate(140deg) scale(.82); } 100% { transform: rotate(360deg) scale(1); } }
+    @media (prefers-reduced-motion: reduce) { .theme-toggle.theme-spin { animation: none; } }
+    /* Barras superiores: SOLO scroll lateral (izquierda/derecha), nunca vertical.
+       La ruedita del mouse mueve la barra a los lados (lo hace el JS __hScrollBar). */
+    #admin-root > header { overflow-x: auto !important; overflow-y: hidden !important; scrollbar-width: none !important; }
+    #admin-root > header::-webkit-scrollbar { display: none !important; }
+
+    /* === SWITCH ESTILO APPLE PARA EL LECTOR DE CÓDIGOS DE BARRAS === */
+    .scan-switch { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+    .scan-switch input { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+    .scan-switch .track {
+      position: relative; display: inline-block; flex-shrink: 0;
+      width: 44px; height: 26px;
+      background: rgb(var(--c-muted) / 0.28);
+      border-radius: 9999px; transition: background 0.2s ease, box-shadow 0.2s ease;
+      /* Contorno visible cuando está apagado (el rgba() con comas no es válido
+         con variables "R G B" y dejaba el riel transparente: solo se veía la bolita) */
+      box-shadow: inset 0 0 0 1.5px rgb(var(--c-muted) / 0.65);
+    }
+    .scan-switch .track::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: rgb(var(--c-txt)); box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      transition: transform 0.2s ease, background 0.2s ease;
+    }
+    /* Apagado (quiebre del tema): la bolita va negra en claro, blanca en oscuro */
+    .scan-switch input:not(:checked) + .track::after { background: rgb(var(--c-txt)); }
+    /* Encendido: usa el color principal del tema (negro en claro, blanco en oscuro) */
+    .scan-switch input:checked + .track { background: rgb(var(--c-accent)); box-shadow: inset 0 0 0 1.5px rgb(var(--c-accent)); }
+    .scan-switch input:checked + .track::after { transform: translateX(18px); background: rgb(var(--c-bg)); }
+    html[data-theme="dark"] select option,
+    html[data-theme="dark"] select optgroup {
+      background-color: rgb(var(--c-surface));
+      color: rgb(var(--c-txt));
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; transition: background-color .3s ease; }
+    ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-muted)); }
+    html.scrolling ::-webkit-scrollbar-thumb { background: rgb(var(--c-muted)); }
+    ::-webkit-scrollbar-track { background: transparent; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* === CONTORNOS NATURALES Y MINIMALISTAS === */
+    div.bg-surface.rounded-xl.border {
+      border-width: 1px !important;
+      border-color: rgb(var(--c-card)) !important; /* Borde del color card del tema actual */
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04) !important; /* Sombra negra muy sutil */
+    }
+
+    tr.border-b {
+      border-bottom-width: 1px !important;
+      border-color: rgb(var(--c-card)) !important; /* Separador de tablas según tema */
+    }
+
+    /* === CURVA APPLE UNIFICADA: todos los recuadros comparten la misma curvatura
+       (como el iPhone sobre la Mac). Escala única en todo el sistema. === */
+    :root { --r-sm: 12px; --r-btn: 14px; --r-card: 20px; --r-modal: 24px; }
+    .rounded-md { border-radius: var(--r-sm) !important; }
+    .rounded-lg { border-radius: var(--r-btn) !important; }
+    .rounded-xl { border-radius: var(--r-card) !important; }
+    .rounded-2xl { border-radius: var(--r-modal) !important; }
+    .rounded-3xl { border-radius: 28px !important; }
+
+    /* === FIX DE LECTURA === */
+    /* Color base de texto claro (modo oscuro), por si algún elemento no tiene clase de texto */
+    html[data-theme="dark"] {
+      color: #F5F5F5;
+    }
+    /* Texto sobre botones de color principal (leído según si es claro u oscuro) */
+    .bg-accent { color: rgb(var(--c-on-accent)) !important; }
+    .bg-accent i { color: inherit !important; }
+    .text-accent { color: rgb(var(--c-accent)) !important; } /* Acentos de texto siguen el color principal */
+    /* Los botones con texto de color + hover blanco (ej. Descuento): el hover debe
+       ganarle al !important base, si no el texto queda invisible sobre el relleno */
+    .hover\:text-white:hover { color: #fff !important; }
+    /* ======================= */
+
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    /* Vibración 3D INTENSA al fallar el login: 8px + giro en Y con
+       amortiguación (el contenedor ya tiene perspective:1000px) */
+    @keyframes shakeX {
+      0% { transform: translateX(0) rotateY(0deg); }
+      15% { transform: translateX(-8px) rotateY(-4deg); }
+      30% { transform: translateX(7px) rotateY(3.4deg); }
+      45% { transform: translateX(-6px) rotateY(-2.6deg); }
+      60% { transform: translateX(5px) rotateY(1.8deg); }
+      75% { transform: translateX(-3px) rotateY(-1deg); }
+      90% { transform: translateX(2px) rotateY(0.5deg); }
+      100% { transform: translateX(0) rotateY(0deg); }
+    }
+    .shake { animation: shakeX .5s cubic-bezier(.36, .07, .19, .97) !important; }
+    /* La tarjeta del login conserva mac-window-in permanentemente: mayor
+       especificidad para que la vibración de error siempre gane */
+    #login-card.shake { animation: shakeX .5s cubic-bezier(.36, .07, .19, .97) !important; }
+    /* Entrada del modal "Acerca de": scale .96→1 + fade en 0.25s estilo Apple */
+    @keyframes aboutIn { from { opacity: 0; transform: scale(.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    .about-in { animation: aboutIn .25s cubic-bezier(.22,1,.36,1) both; }
+    @media (prefers-reduced-motion: reduce) { .about-in { animation: none; } }
+    /* Salida suave del modal "Acerca de": card + fondo se desvanecen juntos */
+    @keyframes aboutOut { from { opacity: 1; transform: scale(1) translateY(0); } to { opacity: 0; transform: scale(.96) translateY(6px); } }
+    .about-out { animation: aboutOut .2s cubic-bezier(.4,0,.2,1) both; }
+    #about-modal { transition: opacity .2s ease; }
+    #about-modal.about-closing { opacity: 0; }
+    /* Despliegue SUAVE del panel "Más información": altura + fade + separador */
+    #about-more { max-height: 0; opacity: 0; overflow: hidden; margin-bottom: 0 !important; padding-top: 0 !important; border-top-width: 0 !important; transition: max-height .35s cubic-bezier(.22,1,.36,1), opacity .25s ease, margin-bottom .35s ease, padding-top .35s ease, border-top-width .3s ease; }
+    #about-more.open { max-height: 240px; opacity: 1; margin-bottom: 1.5rem !important; padding-top: 1rem !important; border-top-width: 1px !important; }
+    @media (prefers-reduced-motion: reduce) { #about-more { transition: none; } }
+    @media (prefers-reduced-motion: reduce) { .about-out { animation: none; } #about-modal { transition: none; } }
+    /* Tinte rojo en los campos al fallar (entra y sale suave, dura 1s) */
+    #login-user.login-field-error, #login-pass.login-field-error {
+      border-color: rgb(var(--c-fin)) !important;
+      box-shadow: 0 0 0 3px rgb(var(--c-fin) / 0.15);
+    }
+    /* Las etiquetas "Usuario" y "Contraseña" también se iluminan en rojo */
+    .login-field > label { transition: color .3s ease; }
+    .login-field.field-error > label { color: rgb(var(--c-fin)); }
+    /* Alturas de gráficas del dashboard (responsive: se compactan en móvil) */
+    .graph-body { height: 260px; }
+    .graph-body-tall { height: 285px; }
+    .graph-scroll { max-height: 300px; }
+    /* Números de KPIs del dashboard: nunca parten el monto; se encogen en pantallas
+       medianas (laptop 13") con font-size fluido en vez de cortarse feo */
+    .kpi-num {
+      white-space: nowrap;
+      font-size: clamp(1.05rem, 2vw, 1.5rem);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    /* Dashboard de gráficas: llena el alto de la pantalla en escritorio */
+    .graph-dash { height: 100%; min-height: 0; }
+    .graph-grid { flex: 1 1 auto; min-height: 0; }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+    .card-in { animation: cardIn .45s cubic-bezier(.4, 0, .2, 1) both; }
+    @keyframes prodPress { 0% { transform: scale(1); } 35% { transform: scale(.92); } 70% { transform: scale(1.04); } 100% { transform: scale(1); } }
+    .prod-press { animation: prodPress .3s cubic-bezier(.36, .07, .19, .97); }
+    /* === VUELO AL CARRITO (premium): la miniatura viaja hasta el carrito y revienta en "+1" === */
+    .fly-dot { position: fixed; z-index: 100000; width: 44px; height: 44px; border-radius: 50%; background: rgb(var(--c-accent)); color: rgb(var(--c-on-accent)); font-weight: 900; font-size: 20px; display: flex; align-items: center; justify-content: center; overflow: hidden; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+    .fly-dot img { width: 100%; height: 100%; object-fit: cover; }
+    .fly-qty { position: fixed; z-index: 100000; transform: translate(-50%, 0); background: rgb(var(--c-success)); color: #fff; font-size: 12px; font-weight: 900; padding: 2px 8px; border-radius: 9999px; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,.25); white-space: nowrap; }
+    @media (prefers-reduced-motion: reduce) {
+      .card-in { animation: none; }
+      .prod-press { animation: none; }
+      .fly-dot, .fly-qty { display: none; }
+    }
+    @media (max-width: 1279px) {
+      .graph-dash { height: auto; }
+    }
+    @media (min-width: 1280px) {
+      .graph-grid { grid-template-rows: minmax(0, 1fr) minmax(0, 1.08fr); }
+      .graph-card { min-height: 0; }
+      .graph-card .graph-body, .graph-card .graph-body-tall { height: 100% !important; min-height: 230px; }
+      .graph-card .graph-scroll { height: 100% !important; max-height: none; min-height: 230px; }
+    }
+    @media (max-width: 639px) {
+      .graph-body { height: 215px !important; }
+      .graph-body-tall { height: 225px !important; }
+      .graph-scroll { max-height: 240px !important; }
+    }
+    .fade-in { animation: fadeIn .3s ease-out; }
+    /* === VISTAS EN VIVO SIN FLASH: al re-renderizar la misma vista (p. ej. al soltar
+       una mesa y llegar el eco de la nube) no se repiten animaciones de entrada === */
+    body.live-view .fade-in, body.live-view .interface-blur-in, body.live-view .mac-window-in,
+    body.live-view .card-in, body.live-view .slide-up, body.live-view .modal-show { animation: none !important; }
+    /* === MODO RENDIMIENTO (gama baja): mata animaciones, desenfoques y sombras pesadas.
+       Se activa con el switch en Configuración; solo afecta a ese dispositivo. === */
+    body.perf-mode, body.perf-mode * { scroll-behavior: auto !important; }
+    body.perf-mode *, body.perf-mode *::before, body.perf-mode *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    body.perf-mode .backdrop-blur, body.perf-mode .backdrop-blur-xl, body.perf-mode .backdrop-blur-2xl,
+    body.perf-mode [class*="backdrop-blur"] { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+    body.perf-mode .shadow-sm, body.perf-mode .shadow, body.perf-mode .shadow-md,
+    body.perf-mode .shadow-lg, body.perf-mode .shadow-xl, body.perf-mode .shadow-2xl { box-shadow: none !important; }
+    body.perf-mode .animate-pulse, body.perf-mode .animate-bounce, body.perf-mode .animate-spin { animation: none !important; }
+    body.perf-mode .fly-dot, body.perf-mode .fly-qty { display: none !important; }
+    /* === CROQUIS RESPONSIVE: las mesas miden % del lienzo (no px fijos) para que
+       el layout se vea idéntico en móvil y PC y ninguna se salga del borde === */
+
+    /* === CROQUIS MESERO EN MÓVIL: mesas compactas para que no se encimen.
+       Las posiciones % se conservan (igual que en PC); solo se achica la mesa. === */
+    @media (max-width: 639px) {
+      #waiter-canvas [data-tbl].tbl-shape-round,
+      #waiter-canvas [data-tbl].tbl-shape-square { width: 16.5% !important; }
+      #waiter-canvas [data-tbl].tbl-shape-rect { width: 23% !important; }
+      #waiter-canvas [data-tbl] span { font-size: 10px !important; line-height: 1.1 !important; }
+      /* Muchas mesas: se achican más para que quepan sin encimarse */
+      #waiter-canvas[data-density="high"] [data-tbl].tbl-shape-round,
+      #waiter-canvas[data-density="high"] [data-tbl].tbl-shape-square { width: 14% !important; }
+      #waiter-canvas[data-density="high"] [data-tbl].tbl-shape-rect { width: 20% !important; }
+      #waiter-canvas[data-density="high"] [data-tbl] span { font-size: 9px !important; }
+    }
+    /* Animación de entrada estilo macOS: fade + scale + blur a nítido */
+    @keyframes macWindowIn {
+      from { opacity: 0; transform: scale(0.98); filter: blur(8px); }
+      to { opacity: 1; transform: scale(1); filter: blur(0); }
+    }
+    .mac-window-in { animation: macWindowIn .45s cubic-bezier(.22, 1, .36, 1); }
+    /* Estado de carga del login: blur suave en la tarjeta mientras entra al sistema */
+    .login-loading { filter: blur(4px); opacity: .9; transition: filter .55s cubic-bezier(.22, 1, .36, 1), opacity .55s cubic-bezier(.22, 1, .36, 1); }
+    /* Salida del login: revelado premium — solo opacidad y escala sutil (100% fluido, sin blur pesado) */
+    .login-exit { opacity: 0; transform: scale(1.03); will-change: opacity, transform; transition: opacity .8s cubic-bezier(.22, 1, .36, 1), transform .8s cubic-bezier(.22, 1, .36, 1); }
+    /* Overlay del fundido login → interfaz (cubre la pantalla con el fondo del tema) */
+    .login-overlay {
+      position: fixed; inset: 0; z-index: 100000;
+      background: rgb(var(--c-bg));
+    }
+    /* Salida suave del mensaje de error del login */
+    .login-error-exit { animation: loginErrorOut .35s cubic-bezier(.22, 1, .36, 1) forwards; }
+    @keyframes loginErrorOut { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-3px); } }
+    /* Limpieza suave de los campos del login (letras desaparecen una a una) */
+    .login-field-clearing { opacity: .55; transition: opacity .3s ease; }
+    /* Entrada de la interfaz: pequeño blur que se enfoca suavemente (estilo macOS) */
+    .interface-blur-in { animation: interfaceBlurIn .45s cubic-bezier(.22, 1, .36, 1); }
+    @keyframes interfaceBlurIn { from { filter: blur(8px); } to { filter: blur(0); } }
+    /* Tilt 3D suave para login (sin glare) */
+    #login-card.tilt-active {
+      transform-style: preserve-3d;
+      will-change: transform;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #login-card.tilt-active { transform: none !important; }
+    }
+    @media (hover: none) {
+      #login-card.tilt-active { transform: none !important; }
+    }
+    @keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+    .slide-up { animation: slideUp .35s ease-out; }
+    /* === SKELETONS DE CARGA (estilo Apple): tarjetas shimmer que imitan el layout final === */
+    .skel {
+      position: relative;
+      overflow: hidden;
+      background: rgb(var(--c-card) / .55);
+      border-radius: 10px;
+    }
+    .skel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgb(255 255 255 / .4), transparent);
+      animation: skel-shimmer 1.4s ease-in-out infinite;
+    }
+    html[data-theme="dark"] .skel::after {
+      background: linear-gradient(90deg, transparent, rgb(255 255 255 / .08), transparent);
+    }
+    @keyframes skel-shimmer { to { transform: translateX(100%); } }
+    /* === MENÚ LATERAL (DRAWER MÓVIL SUAVE + MODO COLABSADO PC) === */
+    #sidebar { transition: width .3s cubic-bezier(.4, 0, .2, 1), transform .3s cubic-bezier(.4, 0, .2, 1); }
+    #sidebar .nav-label, #sidebar .side-text { display: inline-block; overflow: hidden; white-space: nowrap; transition: width .3s ease, opacity .25s ease, transform .3s ease; }
+    #sidebar .side-dot { transition: width .3s ease, height .3s ease, opacity .25s ease; }
+    #sidebar.sidebar-collapsed { width: 4rem !important; }
+    #sidebar.sidebar-collapsed .nav-label, #sidebar.sidebar-collapsed .side-text { width: 0 !important; opacity: 0; transform: translateX(-6px); }
+    #sidebar.sidebar-collapsed .side-dot { width: 0 !important; height: 0 !important; opacity: 0; }
+    #sidebar .nav-btn { position: relative; transition: transform .28s cubic-bezier(.34,1.56,.64,1), background-color .2s ease, box-shadow .2s ease, border-color .2s ease; }
+    #sidebar .nav-dot {
+      position: absolute; left: 4px; top: 50%;
+      width: 5px; height: 5px; border-radius: 9999px;
+      background: rgb(var(--c-accent) / .8);
+      transform: translateY(-50%) scale(0); opacity: 0;
+      transition: transform .25s cubic-bezier(.4, 0, .2, 1), opacity .2s ease;
+    }
+    #sidebar .nav-btn:hover {
+      transform: scale(1.03);
+      background: rgb(var(--c-card) / 0.9) !important;
+      border-color: rgb(var(--c-accent) / 0.12) !important;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+      z-index: 2;
+    }
+    #sidebar .nav-btn.active-nav {
+      transform: scale(1.02);
+      box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+    }
+    #sidebar .nav-btn:hover .nav-dot, #sidebar .nav-btn.active-nav .nav-dot {
+      transform: translateY(-50%) scale(1); opacity: 1;
+    }
+    #sidebar .nav-btn:hover .nav-label {
+      transform: translateX(1px);
+    }
+    /* === DIVISORES DE SECCIÓN DEL MENÚ: etiqueta + línea para distinguir grupos === */
+    #sidebar .nav-section { display: flex; align-items: center; gap: .5rem; padding: .7rem .75rem .3rem; }
+    #sidebar .nav-section span { font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: rgb(var(--c-muted)); white-space: nowrap; }
+    #sidebar .nav-section::after { content: ''; flex: 1; height: 1px; background: rgb(var(--c-muted) / .3); border-radius: 1px; }
+    /* Opción activa más distinguible: fondo acento + barra lateral en vez de puntito */
+    #sidebar .nav-btn.active-nav .nav-dot { width: 4px; height: 60%; border-radius: 4px; }
+    /* Colapsado: se oculta el texto pero la línea divisora se conserva */
+    #sidebar.sidebar-collapsed .nav-section { padding: .35rem 1.1rem 0; }
+    #sidebar.sidebar-collapsed .nav-section span { display: none; }
+    #sidebar.sidebar-collapsed .nav-btn, #sidebar.sidebar-collapsed .session-chip { justify-content: center; gap: 0 !important; padding-left: 1.5rem; padding-right: 1.5rem; }
+    #sidebar.sidebar-collapsed .session-chip, #sidebar.sidebar-collapsed .version-chip { background: transparent; border-color: transparent; box-shadow: none; }
+    #sidebar.sidebar-collapsed .avatar { box-shadow: 0 0 0 2px rgb(var(--c-accent) / .35); }
+    #sidebar.sidebar-collapsed .version-chip { color: rgb(var(--c-muted) / .9); }
+    #admin-root.sidebar-collapsed .biz-name { display: none; }
+    #admin-root.sidebar-collapsed .biz-logo { display: block; }
+    #admin-root.sidebar-collapsed .admin-badge { display: none; }
+    #sidebar-backdrop { transition: opacity .3s ease; }
+    /* La flechita vive en el borde superior del sidebar, debajo del header (top = alto
+       del header): jamás se superpone al nombre del negocio. Cuando colapsa, la lista
+       baja un espacio para que no tape el primer icono. */
+    #sidebar-collapse-btn { transition: left .3s cubic-bezier(.4, 0, .2, 1); top: 3.5rem; }
+    @media (min-width: 1024px) {
+      #sidebar-collapse-btn { left: 13.25rem; }
+      #sidebar-collapse-btn.sb-collapsed { left: 3.25rem; }
+    }
+    #sidebar.sidebar-collapsed .nav-list { padding-top: 3rem; }
+    /* === FLECHITA DE COLAPSO DEL MENÚ (estilo Apple): hielo traslúcido, brillo
+       superior, chevron en acento para que se note, hover con rebote y clic hundido === */
+    #sidebar-collapse-btn {
+      border: 1px solid rgba(128, 128, 128, .3);
+      background: rgba(255, 255, 255, .55);
+      backdrop-filter: blur(14px) saturate(1.5);
+      -webkit-backdrop-filter: blur(14px) saturate(1.5);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, .12), inset 0 1px 0 rgba(255, 255, 255, .75);
+      color: rgb(var(--c-accent));
+      transition: left .3s cubic-bezier(.4, 0, .2, 1), background-color .2s ease, color .2s ease, transform .18s cubic-bezier(.34, 1.56, .64, 1), box-shadow .2s ease;
+      will-change: transform;
+    }
+    #sidebar-collapse-btn:hover {
+      background: rgba(255, 255, 255, .95);
+      color: rgb(var(--c-accent));
+      transform: scale(1.15);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .9);
+    }
+    #sidebar-collapse-btn:active { transform: scale(.88); }
+    #sidebar-collapse-btn i { transition: transform .25s cubic-bezier(.34, 1.56, .64, 1); }
+    #sidebar-collapse-btn:active i { transform: scale(.7); }
+    html[data-theme="dark"] #sidebar-collapse-btn {
+      background: rgba(44, 44, 49, .7);
+      border-color: rgba(255, 255, 255, .14);
+      color: rgb(var(--c-accent));
+      box-shadow: 0 3px 10px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .1);
+    }
+    html[data-theme="dark"] #sidebar-collapse-btn:hover {
+      background: rgba(72, 72, 80, .95);
+      color: rgb(var(--c-accent));
+    }
+    @media (max-width: 1023px) {
+      /* Drawer flotante de vidrio en móvil (como estaba): panel separado del
+         header, sin fade ni compactaciones — esas metían el scroll fantasma */
+      #sidebar {
+        top: calc(3.5rem + 12px) !important;
+        bottom: 12px !important;
+        left: 12px !important;
+        height: auto !important;
+        max-height: calc(100dvh - 3.5rem - 24px) !important;
+        border-radius: 20px !important;
+        background: rgb(var(--c-surface) / 0.96) !important;
+        backdrop-filter: blur(30px) saturate(1.8) !important;
+        -webkit-backdrop-filter: blur(30px) saturate(1.8) !important;
+        border: 1px solid rgb(var(--c-card) / 0.55) !important;
+        box-shadow: 0 16px 48px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.42) !important;
+        overflow: hidden !important;
+        transform: translateX(calc(-100% - 24px)) !important;
+      }
+      #sidebar.sidebar-open { transform: translateX(0) !important; }
+      #sidebar-backdrop.sidebar-open { opacity: 1; pointer-events: auto; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); top: 3.5rem; }
+      html[data-theme="dark"] #sidebar {
+        background: rgb(var(--c-surface) / 0.94) !important;
+        box-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 4px 16px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.07) !important;
+        border-color: rgba(255,255,255,0.08) !important;
+      }
+    }
+    /* === DYNAMIC LIQUID GLASS SHIMMER: reflejo especular en movimiento === */
+    #admin-root > header,
+    #sidebar {
+      isolation: isolate;
+    }
+    #admin-root > header::after,
+    #sidebar::after {
+      content: '';
+      position: absolute;
+      /* inset:0 (no negativo): el ::after no debe sobresalir ni 1px del
+         contenedor — ese desborde metía scroll horizontal en el admin */
+      inset: 0;
+      background: linear-gradient(105deg,
+        transparent 28%,
+        rgba(255,255,255,0) 32%,
+        rgba(255,255,255,0.10) 42%,
+        rgba(255,255,255,0.22) 50%,
+        rgba(255,255,255,0.10) 58%,
+        transparent 68%);
+      background-size: 220% 100%;
+      background-position: -120% 0;
+      animation: liquidShimmer 9s cubic-bezier(0.4,0,0.2,1) infinite;
+      pointer-events: none;
+      border-radius: inherit;
+      mix-blend-mode: overlay;
+      opacity: 0.55;
+    }
+    #sidebar::after { animation-duration: 10s; animation-delay: -2.5s; opacity: 0.45; }
+    @keyframes liquidShimmer {
+      0% { background-position: -120% 0; }
+      100% { background-position: 120% 0; }
+    }
+    html[data-theme="dark"] #admin-root > header::after,
+    html[data-theme="dark"] #sidebar::after {
+      background: linear-gradient(105deg,
+        transparent 28%,
+        rgba(255,255,255,0) 32%,
+        rgba(255,255,255,0.06) 42%,
+        rgba(255,255,255,0.13) 50%,
+        rgba(255,255,255,0.06) 58%,
+        transparent 68%);
+      opacity: 0.5;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #admin-root > header::after, #sidebar::after { animation: none !important; opacity: 0 !important; }
+    }
+    /* Reactivo al scroll: la posición del brillo sigue el scrollY con JS (se actualiza via --scroll-y) */
+
+    @keyframes modalIn { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }
+    .modal-show { animation: modalIn .3s ease-out; }
+    /* === AMBIENT VIGNETTE LOGIN: espejo oscuro/claro con luz central === */
+    .login-vignette { background: #FAFAFC; position: relative; }
+    html[data-theme="dark"] .login-vignette { background: #000000; }
+    .login-vignette-bg {
+      position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 74% 60% at 50% 46%, #FFFFFF 0%, #FFFFFF 16%, #FDFDFD 28%, #FAFAFC 42%, #F2F2F4 66%, #E9E9EC 84%, #E6E6E8 100%);
+      opacity: 1;
+    }
+    html[data-theme="dark"] .login-vignette-bg {
+      background: radial-gradient(ellipse 70% 54% at 50% 48%, #1C1C1E 0%, #1C1C1E 10%, #151518 24%, #0F0F10 38%, #0B0B0C 54%, #070708 74%, #000000 88%);
+    }
+    .login-vignette::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 125% 92% at 50% 50%, transparent 60%, rgba(0,0,0,0.035) 82%, rgba(0,0,0,0.06) 100%);
+    }
+    html[data-theme="dark"] .login-vignette::after {
+      background: radial-gradient(ellipse 132% 96% at 50% 50%, transparent 52%, rgba(0,0,0,0.42) 78%, rgba(0,0,0,0.88) 100%);
+    }
+    .login-accent-glow { opacity: 0.38; }
+    html[data-theme="dark"] .login-accent-glow { opacity: 0.28; }
+    /* === LOGIN LIQUID GLASS CRISTALINO: más transparente, blur intenso,
+       filo de luz superior fijo (sin animación) y reflejo inferior sutil === */
+    #login-card {
+      background: rgb(var(--c-surface) / 0.55) !important;
+      backdrop-filter: blur(28px) saturate(1.8);
+      -webkit-backdrop-filter: blur(28px) saturate(1.8);
+      border: 1px solid rgba(255,255,255,0.5) !important;
+      box-shadow: 0 30px 90px rgba(0,0,0,0.14), 0 8px 24px rgba(0,0,0,0.06), inset 0 1px 1px rgba(255,255,255,0.6), inset 0 -1px 1px rgba(255,255,255,0.12) !important;
+    }
+    #login-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 12%; right: 12%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+      pointer-events: none;
+    }
+    html[data-theme="dark"] #login-card {
+      background: rgb(var(--c-surface) / 0.6) !important;
+      border-color: rgba(255,255,255,0.14) !important;
+      box-shadow: 0 30px 90px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.25), inset 0 1px 1px rgba(255,255,255,0.14), inset 0 -1px 1px rgba(255,255,255,0.04) !important;
+    }
+    html[data-theme="dark"] #login-card::before {
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+    }
+    /* === SUBTLE NOISE/GRAIN: textura táctil anodizada === */
+    .noise-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9998;
+      opacity: 0.022;
+      mix-blend-mode: multiply;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 180px 180px;
+    }
+    html[data-theme="dark"] .noise-overlay { opacity: 0.032; mix-blend-mode: soft-light; }
+    @media (prefers-reduced-motion: reduce) { .noise-overlay { opacity: 0.012; } }
+    /* === MALLA DE GRADIENTES VIVOS: orbes difuminados flotando === */
+    .login-mesh { position: absolute; inset: -12%; pointer-events: none; overflow: hidden; filter: blur(0px); }
+    .mesh-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      will-change: transform;
+      opacity: 0.28;
+      mix-blend-mode: plus-lighter;
+    }
+    html[data-theme="dark"] .mesh-orb { mix-blend-mode: soft-light; opacity: 0.22; }
+    .mesh-orb-1 {
+      width: 680px; height: 680px;
+      left: -8%; top: -18%;
+      background: radial-gradient(circle at 35% 35%, rgb(var(--c-accent) / 0.42) 0%, rgb(var(--c-accent2) / 0.28) 38%, transparent 72%);
+      animation: meshDrift1 26s ease-in-out infinite alternate;
+    }
+    .mesh-orb-2 {
+      width: 620px; height: 620px;
+      right: -12%; top: 8%;
+      background: radial-gradient(circle at 60% 40%, rgb(var(--c-accent) / 0.32) 0%, rgba(120,130,255,0.18) 36%, transparent 72%);
+      animation: meshDrift2 31s ease-in-out infinite alternate;
+    }
+    .mesh-orb-3 {
+      width: 720px; height: 720px;
+      left: 18%; bottom: -22%;
+      background: radial-gradient(circle at 50% 50%, rgb(var(--c-accent) / 0.26) 0%, rgba(255,160,180,0.14) 32%, transparent 72%);
+      animation: meshDrift3 28s ease-in-out infinite alternate;
+    }
+    .mesh-orb-4 {
+      width: 520px; height: 520px;
+      left: 48%; top: 32%;
+      background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.9) 0%, rgb(var(--c-card) / 0.55) 42%, transparent 74%);
+      opacity: 0.14;
+      animation: meshDrift4 34s ease-in-out infinite alternate;
+    }
+    html[data-theme="dark"] .mesh-orb-1 { background: radial-gradient(circle at 35% 35%, rgba(58,58,62,0.55) 0%, rgba(44,44,46,0.38) 38%, transparent 72%); }
+    html[data-theme="dark"] .mesh-orb-2 { background: radial-gradient(circle at 60% 40%, rgba(72,72,80,0.42) 0%, rgba(58,58,62,0.28) 36%, transparent 72%); }
+    html[data-theme="dark"] .mesh-orb-3 { background: radial-gradient(circle at 50% 50%, rgba(44,44,46,0.40) 0%, rgba(34,34,36,0.22) 32%, transparent 72%); }
+    html[data-theme="dark"] .mesh-orb-4 { background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 42%, transparent 74%); opacity: 0.10; }
+    @keyframes meshDrift1 { 0% { transform: translate(0, 0) scale(1) rotate(0deg); } 33% { transform: translate(42px, 28px) scale(1.04) rotate(1deg); } 66% { transform: translate(-18px, 36px) scale(0.97) rotate(-0.6deg); } 100% { transform: translate(14px, -12px) scale(1.02) rotate(0.8deg); } }
+    @keyframes meshDrift2 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(-36px, 22px) scale(1.03); } 66% { transform: translate(20px, -18px) scale(0.98); } 100% { transform: translate(-10px, 14px) scale(1.01); } }
+    @keyframes meshDrift3 { 0% { transform: translate(0, 0) scale(1); } 33% { transform: translate(28px, -24px) scale(1.02); } 66% { transform: translate(-22px, 12px) scale(1.04); } 100% { transform: translate(16px, 18px) scale(0.99); } }
+    @keyframes meshDrift4 { 0% { transform: translate(0, 0) scale(1); opacity: 0.14; } 50% { transform: translate(-16px, -14px) scale(1.06); opacity: 0.18; } 100% { transform: translate(12px, 10px) scale(0.98); } }
+    @media (prefers-reduced-motion: reduce) { .mesh-orb { animation: none !important; } }
+    @media (max-width: 640px) { .mesh-orb { filter: blur(64px); } .mesh-orb-1, .mesh-orb-2, .mesh-orb-3 { width: 520px; height: 520px; } }
+
+    /* === TOASTS ESTILO NOTIFICACIÓN iOS: tarjeta de vidrio, icono en círculo
+       de color, entra desde arriba con spring y sale con fade + desplazamiento === */
+    #toast-container { align-items: center; }
+    .toast-glass {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      background: rgba(255,255,255,0.55);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: .65rem .9rem .65rem .65rem;
+      max-width: min(92vw, 22rem);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    html[data-theme="dark"] .toast-glass {
+      background: rgba(39,39,42,0.55);
+      border-color: rgba(255,255,255,0.12);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    .toast-icon {
+      width: 2.1rem; height: 2.1rem;
+      border-radius: 9999px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .toast-in { animation: toastIn .5s cubic-bezier(.32, .72, 0, 1); }
+    .toast-out { animation: toastOut .3s cubic-bezier(.4, 0, .2, 1) forwards; }
+    /* === DUST DISMISS para carrito === */
+    @keyframes dustOut { 0% { transform: scale(1) rotate(0) translateX(0); opacity: 1; filter: blur(0); } 100% { transform: scale(0) rotate(-8deg) translateX(-16px); opacity: 0; filter: blur(2px); } }
+    .dust-out { animation: dustOut 0.42s cubic-bezier(.4,0,.2,1) forwards; }
+    @keyframes cartCompress { 0% { transform: scale(1); } 35% { transform: scale(0.985); } 100% { transform: scale(1); } }
+
+    /* === CARRUSEL ARMA TU BOWL: deslizamiento entre pasos (título + subtítulo
+       + base + lista se mueven juntos), pop del check con spring y barra de
+       cupo con ancho animado === */
+    @keyframes bowlStepR { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+    @keyframes bowlStepL { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+
+    @keyframes bowlPop { 0% { transform: scale(.4); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(-18px) scale(.96); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes toastOut {
+      to { opacity: 0; transform: translateY(-10px) scale(.97); }
+    }
+    @media (max-width: 640px) {
+      #toast-container { left: 1rem; right: 1rem; }
+      .toast-glass { max-width: none; }
+    }
+    /* === GLOW DE FOCO ESTILO iOS 26 (Liquid Glass): halo sutil del color principal
+       alrededor del campo activo. Aplica a TODO el sistema con una sola regla.
+       El inset conserva las sombras internas (p. ej. el input del PIN con shadow-inner). === */
+    input:focus:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: rgb(var(--c-accent2));
+      box-shadow: 0 0 0 4px rgb(var(--c-accent2) / .22), inset 0 2px 4px rgb(0 0 0 / .05);
+    }
+    html[data-theme="dark"] input:focus:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+    html[data-theme="dark"] select:focus,
+    html[data-theme="dark"] textarea:focus {
+      box-shadow: 0 0 0 4px rgb(var(--c-accent) / .12), inset 0 1px 2px rgb(0 0 0 / .2);
+    }
+    /* === LOGIN: ILUMINACIÓN AL POSAR / ENFOCAR (estilo imagen) === */
+    #login-user, #login-pass {
+      transition: border-color .22s ease, box-shadow .22s ease, background-color .22s ease;
+    }
+    #login-user:hover, #login-pass:hover {
+      border-color: rgb(var(--c-accent2) / 0.55);
+      box-shadow: 0 0 0 3px rgb(var(--c-accent2) / 0.12), 0 1px 8px rgb(var(--c-accent2) / 0.12);
+    }
+    #login-user:focus, #login-pass:focus {
+      border-color: rgb(var(--c-accent2));
+      box-shadow: 0 0 0 4px rgb(var(--c-accent2) / 0.2), 0 0 0 1px rgb(var(--c-accent2) / 0.15) inset, 0 6px 20px rgb(var(--c-accent2) / 0.18), 0 1px 0 rgba(255,255,255,0.4) inset;
+    }
+    html[data-theme="dark"] #login-user:hover, html[data-theme="dark"] #login-pass:hover {
+      border-color: rgb(var(--c-accent) / 0.45);
+      box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.07), 0 1px 8px rgba(255,255,255,0.06);
+    }
+    html[data-theme="dark"] #login-user:focus, html[data-theme="dark"] #login-pass:focus {
+      border-color: rgb(var(--c-accent));
+      box-shadow: 0 0 0 4px rgb(var(--c-accent) / 0.11), 0 0 0 1px rgb(var(--c-accent) / 0.10) inset, 0 6px 20px rgba(255,255,255,0.10), 0 1px 0 rgba(255,255,255,0.08) inset;
+    }
+    .login-field label {
+      transition: color .22s ease;
+    }
+    .login-field:focus-within label {
+      color: rgb(var(--c-accent)) !important;
+    }
+    html[data-theme="dark"] .login-field:focus-within label {
+      color: rgb(var(--c-accent)) !important;
+    }
+    .pos-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 100%; }
+    /* La columna principal nunca se desborda a los lados (evita cuadrícula recorrida/cortada) */
+
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+    /* Ancho de ticket configurable (Configuración → 58mm / 80mm): la vista
+       previa del modal ya muestra el ancho real del papel */
+
+    /* === BARRA SUPERIOR DEL POS: fija, sin rebotes ni saltos === */
+    #app { height: 100dvh !important; } /* Altura dinámica: evita que la barra del navegador mueva la app */
+
+    /* === VIDRIO LIQUID GLASS ultraThin (iOS 26): estandarizado === */
+    #admin-root > header,
+    #sidebar {
+      background: rgba(255,255,255,0.55);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border-color: rgba(255,255,255,0.12) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+
+    html[data-theme="dark"] #sidebar {
+      background: rgba(39,39,42,0.55) !important;
+      border-color: rgba(255,255,255,0.12) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    /* Header del ADMIN en oscuro: casi sólido como en modo claro — el 0.55
+       dejaba ver el contenido al hacer scroll (calculadora, tema, salir) */
+    html[data-theme="dark"] #admin-root > header {
+      background: rgb(var(--c-surface) / 0.94) !important;
+      border-color: rgba(255,255,255,0.12) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    /* === MÓVIL: BARRA SUPERIOR SÓLIDA Y ESTABLE (como v4) ===
+       El blur + sticky con overflow-x en iOS Safari hace que la barra brinque
+       al hacer scroll; en pantallas chicas se vuelve sólida. */
+    @media (max-width: 900px) {
+      /* El header del ADMIN sufría lo mismo (blur translúcido = capa que no se
+         repinta con el tema en iOS): en móvil se vuelve sólido y siempre fiel al tema */
+      #admin-root > header {
+        background: rgb(var(--c-surface));
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+    }
+
+    :root {
+      --scroll-y: 0;
+      --c-bg: 255 255 255;
+      --c-surface: 255 255 255;
+      --c-card: 229 229 229;
+      --c-accent: 0 0 0;
+      --c-accent2: 51 51 51;
+      --c-danger: 220 38 38;
+      --c-fin: 220 38 38;
+      --c-success: 16 185 129;
+      --c-warn: 245 158 11;
+      --c-txt: 0 0 0;
+      --c-muted: 102 102 102;
+      --c-on-accent: 255 255 255; /* Texto sobre botones (calculado automáticamente) */
+    }
+  </style>
+  <!-- Tema/paleta vive en ./app.js [4] (antes inline aquí). -->
+  <style>body { box-sizing: border-box; }</style>
+ </head>
+ <body class="h-full bg-bg text-txt overscroll-none">
+  <div id="app" class="h-full w-full overflow-x-hidden overflow-y-auto"></div>
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <div id="toast-container" class="fixed top-4 right-4 z-[10080] flex flex-col gap-2"></div>
+
+  <!-- MODAL DE ATAJOS DE TECLADO (F1-F12) -->
+
+  <!-- Mitad y mitad: z por encima del modal del mesero (10060) para que el picker no abra debajo -->
+
+  <!-- Arma tu Bowl: carrusel por pasos (mostrador). z por encima de half (10070). -->
+
+  <div id="confirm-modal" class="fixed inset-0 z-[10065] hidden items-center justify-center" style="background:rgba(0,0,0,.6)">
+   <div class="bg-surface rounded-xl p-6 max-w-sm w-full mx-4 slide-up border border-card shadow-2xl">
+    <p id="confirm-msg" class="text-lg mb-5 font-medium"></p>
+    <div class="flex gap-3 justify-end">
+     <button type="button" id="confirm-cancel" class="px-4 py-2 rounded-lg bg-card text-muted hover:bg-bg transition font-semibold">Cancelar</button>
+     <button type="button" id="confirm-ok" class="px-4 py-2 rounded-lg bg-danger text-white hover:opacity-90 transition font-semibold">Confirmar</button>
+    </div>
+   </div>
+  </div>
+
+  <!-- MODAL DE ESCÁNER DE CÁMARA -->
+
+  <!-- MODAL "ACERCA DE" ESTILO macOS -->
+  <div id="about-modal" class="fixed inset-0 z-[10050] hidden items-center justify-center p-4" style="background:rgba(0,0,0,.4); backdrop-filter: blur(4px);">
+    <div class="bg-[#1e1e1e] text-[#f5f5f5] rounded-2xl p-8 max-w-[340px] w-full mx-auto flex flex-col items-center shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 about-in relative overflow-hidden">
+
+       <!-- Botones estilo Mac (Semáforo) -->
+       <div class="absolute top-4 left-4 flex gap-2">
+           <button type="button" onclick="window.closeAboutSmooth()" class="w-3.5 h-3.5 rounded-full bg-[#ff5f56] border border-black/20 hover:bg-[#ff5f56]/80 flex items-center justify-center group transition-colors">
+            <svg class="w-2 h-2 text-[#4d0000] opacity-0 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+          <div class="w-3.5 h-3.5 rounded-full bg-[#ffbd2e] border border-black/20"></div>
+          <div class="w-3.5 h-3.5 rounded-full bg-[#27c93f] border border-black/20"></div>
+       </div>
+
+               <!-- Icono Principal - Logo del sistema como en login -->
+        <div id="about-logo-container" class="w-24 h-24 mt-4 mb-2 flex items-center justify-center drop-shadow-lg">
+           <i data-lucide="shopping-bag" class="w-[80px] h-[80px] text-white/80"></i>
+        </div>
+
+       <!-- Título y Versión -->
+       <h2 class="text-2xl font-bold tracking-tight mt-2">CHECK</h2>
+        <p class="text-[11px] text-white/50 mb-6 font-semibold tracking-wide uppercase">Versión 0.27, 2026</p>
+
+       <!-- Especificaciones Técnicas -->
+       <div class="w-full text-xs space-y-2.5 mb-8">
+          <div class="flex justify-between px-4">
+             <span class="text-white/50 text-right w-[45%] pr-3 font-semibold">Base de datos</span>
+             <span class="text-white text-left w-[55%] font-medium">Encriptado</span>
+          </div>
+           <div class="flex justify-between px-4">
+              <span class="text-white/50 text-right w-[45%] pr-3 font-semibold">Soporte</span>
+              <a id="about-support-link" href="tel:9619156443" class="text-white text-left w-[55%] font-medium hover:text-white/80 transition underline decoration-white/20 underline-offset-2">961-915-6443</a>
+           </div>
+        </div>
+
+        <button id="about-more-btn" class="px-5 py-1.5 bg-white/10 hover:bg-white/20 rounded-md text-[11px] font-bold transition mb-3 border border-white/10 shadow-sm" onclick="window.toggleAboutMore()">Más información...</button>
+
+        <div id="about-more" class="w-full text-xs space-y-2.5 mb-6 px-4 pt-4 border-t border-white/10">
+           <div class="flex justify-between">
+              <span class="text-white/50 font-semibold">Productos registrados</span>
+              <span id="about-stat-products" class="text-white font-medium">–</span>
+           </div>
+           <div class="flex justify-between">
+              <span class="text-white/50 font-semibold">Ventas registradas</span>
+              <span id="about-stat-sales" class="text-white font-medium">–</span>
+           </div>
+           <div class="flex justify-between">
+              <span class="text-white/50 font-semibold">Clientes registrados</span>
+              <span id="about-stat-clients" class="text-white font-medium">–</span>
+           </div>
+           <div class="flex justify-between">
+              <span class="text-white/50 font-semibold">Conexión</span>
+              <span id="about-stat-net" class="text-white font-medium">–</span>
+           </div>
+        </div>
+
+       <p class="text-[9px] text-white/40 text-center leading-[1.4]">
+         Certificación reglamentaria y operativa<br>
+         ™ y © 2026 DY Code Studio.<br>
+         Todos los derechos reservados.
+       </p>
+    </div>
+  </div>
+
+  <!-- Utilidades (offline/SW, wheel-blur, anti-inspección) viven en ./app.js [5]. -->
+  <!-- App: TODO el JS propio en UN solo ./app.js (orden: imports→boot→config→tema→utils→app). -->
+  <script type="module" src="./app.js"></script>
+ </body>
+</html>
