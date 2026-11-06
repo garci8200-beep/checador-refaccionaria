@@ -1246,6 +1246,9 @@ function render() {
     case 'admin-users':
       renderAdminShell(renderUsersAdmin);
       break;
+      case 'admin-horarios':
+  renderAdminShell(renderAutorizacionesHorario);
+  break;
     case 'admin-settings':
       renderAdminShell(renderSettings);
       break;
@@ -1422,7 +1425,7 @@ function renderLogin() {
       const isEmployee = !!(user && user.role === 'employee');
       if (!user || user.disabledLogin || user.scheduleBlock || retiredCashier || isEmployee) {
         // Error: se restaura el botón, nunca hubo blur
-        btn.disabled = true;
+        btn.disabled = false;
         btn.innerHTML = 'Iniciar Sesión';
         lucide.createIcons();
         const errorEl = document.getElementById('login-error');
@@ -1607,6 +1610,7 @@ function renderAdminShell(contentFn) {
     { id:'admin-attendance', icon:'fingerprint', label:'Checador Empleados', sec:'Personal' },
     { id:'admin-attendance-dash', icon:'layout-dashboard', label:'Dashboard Asistencia', sec:'Personal' },
     { id:'admin-users', icon:'users', label:'Usuarios', sec:'Sistema' },
+    { id:'admin-horarios', icon:'calendar-clock', label:'Autorizaciones de horario', sec:'Personal' },
     { id:'admin-settings', icon:'settings', label:'Config', sec:'Sistema' },
   ];
   // Orden personalizado del cliente (Config → Orden del Menú)
@@ -1651,7 +1655,12 @@ function renderAdminShell(contentFn) {
   if (currentUser && currentUser.role === 'attendance') {
     userPerms = [];
   }
-
+// Permitir autorizaciones de horario a administradores
+if (currentUser && currentUser.role === 'admin') {
+  if (!userPerms.includes('admin-horarios')) {
+    userPerms = [...userPerms, 'admin-horarios'];
+  }
+}
   // Filtramos las pestañas que puede ver (+ sin modo restaurante se ocultan mesas/cocina/propinas/pedidos)
   let navItems = allNavItems.filter(n => userPerms.includes(n.id));
 
@@ -3066,11 +3075,114 @@ function renderCheckerView() {
     render();
   };
 }
+// ========== AUTORIZACIONES DE HORARIO ==========
+let autorizacionesHorario = [];
+try {
+  onSnapshot(collection(db, 'autorizaciones_horario'), (snapshot) => {
+    autorizacionesHorario = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (currentView === 'admin-horarios' && currentUser?.role === 'admin') {
+      const list = document.getElementById('aut-lista');
+      if (list) pintarAutorizacionesHorario(list);
+    }
+  }, err => console.error('Error leyendo autorizaciones:', err));
+} catch (e) { console.error('Error inicializando autorizaciones:', e); }
+
+function pintarAutorizacionesHorario(list) {
+  list.replaceChildren();
+  const items = [...autorizacionesHorario].sort((a,b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
+  if (!items.length) { list.textContent = 'Todavía no hay autorizaciones registradas.'; return; }
+  items.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'p-3 border border-card rounded-lg bg-card/20 text-sm';
+    const title = document.createElement('div'); title.className = 'font-semibold';
+    title.textContent = `${a.empleado_nombre || a.empleado} · ${a.fecha} · ${a.hora}`;
+    const detail = document.createElement('div'); detail.className = 'text-muted mt-1';
+    detail.textContent = `${a.tipo === 'anticipada' ? 'Salida anticipada' : 'Extensión de horario'} · ${a.motivo || ''}`;
+    row.append(title, detail); list.appendChild(row);
+  });
+}
+
+function renderAutorizacionesHorario(container) {
+  if (!currentUser || currentUser.role !== 'admin') {
+    container.textContent = 'Acceso restringido: solo administradores.';
+    return;
+  }
+  container.innerHTML = `
+    <div class="fade-in space-y-5 max-w-3xl">
+      <h2 class="text-xl font-bold">Autorizaciones de horario</h2>
+      <form id="form-autorizacion-horario" class="bg-surface rounded-xl p-5 border border-card space-y-4">
+        <h3 class="font-semibold">Nueva autorización</h3>
+        <label class="block text-sm">Empleado
+          <select id="aut-empleado" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required>
+            <option value="">Seleccionar empleado</option>
+          </select>
+        </label>
+        <label class="block text-sm">Fecha
+          <input id="aut-fecha" type="date" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required>
+        </label>
+        <label class="block text-sm">Tipo de autorización
+          <select id="aut-tipo" class="block w-full mt-1 bg-card border border-card rounded-lg p-3">
+            <option value="anticipada">Salida anticipada</option>
+            <option value="extension">Extensión de horario</option>
+          </select>
+        </label>
+        <label class="block text-sm">Hora autorizada de salida (08:00–19:00)
+          <input id="aut-hora" type="time" min="08:00" max="19:00" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required>
+        </label>
+        <label class="block text-sm">Motivo
+          <textarea id="aut-motivo" rows="3" maxlength="500" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required></textarea>
+        </label>
+        <button id="aut-guardar" type="submit" class="bg-blue-600 text-white px-5 py-3 rounded-lg">Guardar autorización</button>
+        <p id="aut-aviso" class="text-sm" role="status"></p>
+      </form>
+      <div class="bg-surface rounded-xl p-5 border border-card space-y-3">
+        <h3 class="font-semibold">Autorizaciones registradas</h3>
+        <div id="aut-lista" class="space-y-2"></div>
+      </div>
+    </div>`;
+  const selector = container.querySelector('#aut-empleado');
+  getUsers().filter(u => u.role === 'employee').forEach(u => {
+    const option = document.createElement('option');
+    option.value = u.username; option.textContent = u.name || u.username;
+    selector.appendChild(option);
+  });
+  const fecha = container.querySelector('#aut-fecha');
+  const localNow = new Date();
+  fecha.value = `${localNow.getFullYear()}-${String(localNow.getMonth()+1).padStart(2,'0')}-${String(localNow.getDate()).padStart(2,'0')}`;
+  pintarAutorizacionesHorario(container.querySelector('#aut-lista'));
+  container.querySelector('#form-autorizacion-horario').onsubmit = async (e) => {
+    e.preventDefault();
+    const hora = container.querySelector('#aut-hora').value;
+    const motivo = container.querySelector('#aut-motivo').value.trim();
+    const aviso = container.querySelector('#aut-aviso');
+    if (hora < '08:00' || hora > '19:00') { aviso.textContent = 'La hora debe estar entre 08:00 y 19:00.'; return; }
+    if (!selector.value || !fecha.value || !motivo) { aviso.textContent = 'Completa todos los campos.'; return; }
+    const btn = container.querySelector('#aut-guardar'); btn.disabled = true;
+    aviso.textContent = 'Guardando...';
+    try {
+      await addDoc(collection(db, 'autorizaciones_horario'), {
+        empleado: selector.value,
+        empleado_nombre: selector.selectedOptions[0]?.textContent || selector.value,
+        fecha: fecha.value,
+        tipo: container.querySelector('#aut-tipo').value,
+        hora, motivo,
+        autorizado_por: currentUser.username,
+        creado_en: new Date().toISOString()
+      });
+      aviso.textContent = 'Autorización guardada correctamente.';
+      container.querySelector('#aut-motivo').value = '';
+      container.querySelector('#aut-hora').value = '';
+    } catch (err) {
+      console.error('Error al guardar autorización', err);
+      aviso.textContent = 'No se pudo guardar. Revisa conexión y permisos de Firestore.';
+    } finally { btn.disabled = false; }
+  };
+}
 // ========== USERS ADMIN ==========
 function renderUsersAdmin(container) {
   const allUsers = getUsers();
   let editingUser = null;
-  let editingLeaveDays = [];
+  let editingLeaveDays = [];1609
   let leaveCalCursor = new Date();
   leaveCalCursor.setDate(1);
 
@@ -3151,11 +3263,11 @@ function renderUsersAdmin(container) {
   <div id="u-sched-times" class="hidden gap-3 mt-2 flex">
     <div>
       <label class="block text-xs text-muted mb-1" id="u-sched-from-label">Desde</label>
-      <input id="u-sched-start" type="time" value="09:00" class="bg-card border border-card rounded-lg px-3 py-2 text-sm focus:border-accent focus:outline-none">
+      <input id="u-sched-start" type="time" value="08:00" class="bg-card border border-card rounded-lg px-3 py-2 text-sm focus:border-accent focus:outline-none">
     </div>
     <div>
       <label class="block text-xs text-muted mb-1" id="u-sched-to-label">Hasta</label>
-      <input id="u-sched-end" type="time" value="18:00" class="bg-card border border-card rounded-lg px-3 py-2 text-sm focus:border-accent focus:outline-none">
+      <input id="u-sched-end" type="time" value="19:00" class="bg-card border border-card rounded-lg px-3 py-2 text-sm focus:border-accent focus:outline-none">
     </div>
   </div>
   <p class="text-[11px] text-muted mt-1" id="u-sched-note">Fuera de ese horario no podrá iniciar sesión (acepta turno nocturno, ej. 22:00–06:00). El admin principal siempre entra.</p>
@@ -3209,7 +3321,7 @@ function renderUsersAdmin(container) {
               <td class="p-3"><span class="text-xs px-2 py-0.5 rounded-full font-bold ${u.disabled ? 'bg-danger/15 text-danger' : 'bg-success/15 text-success'}">${u.disabled ? 'Deshabilitado' : 'Activo'}</span></td>
               <td class="p-3 whitespace-nowrap">${u.sched_enabled ? `<span class="inline-flex items-center gap-1 text-xs font-bold text-accent2"><i data-lucide="clock" class="w-3.5 h-3.5"></i>${u.sched_start || '--:--'}–${u.sched_end || '--:--'}</span>` : '<span class="text-xs text-muted">—</span>'}</td>
               <td class="p-3 whitespace-nowrap">${(u.leave_days && u.leave_days.length) ? `<span class="inline-flex items-center gap-1 text-[11px] font-black px-2 py-0.5 rounded-full bg-success/15 text-success" title="${u.leave_days.slice().sort().join(', ')}"><i data-lucide="calendar-check" class="w-3.5 h-3.5"></i>${u.leave_days.length} día${u.leave_days.length === 1 ? '' : 's'}</span>` : '<span class="text-xs text-muted">—</span>'}</td>
-              <td class="p-3 text-center">${(u.username === 'admin' || u.role === 'attendance') ? '<span class="text-[11px] text-muted">—</span>' : `<button type="button" data-user-qr="${u.username}" class="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition" title="Ver / imprimir QR gafete de ${u.username}"><i data-lucide="qr-code" class="w-3.5 h-3.5 pointer-events-none"></i> QR</button>`}</td>
+              <td class="p-3 text-center">${(u.role === 'admin' || u.role === 'attendance') ? '<span class="text-[11px] text-muted">—</span>' : `<button type="button" data-user-qr="${u.username}" class="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition" title="Ver / imprimir QR gafete de ${u.username}"><i data-lucide="qr-code" class="w-3.5 h-3.5 pointer-events-none"></i> QR</button>`}</td>
              <td class="p-3 flex justify-center gap-2">
   <button type="button" onclick="window.editUser('${u.username}')" class="p-2 bg-accent/10 hover:bg-accent/20 rounded-lg transition text-accent" title="Editar">
     <!-- SVG directo del lápiz para evitar fallos de renderizado -->

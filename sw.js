@@ -1,6 +1,6 @@
 
 
-const VERSION = 'posfn-v45';
+const VERSION = 'posfn-v47';
 const CACHE = 'posfn-shell-' + VERSION;
 
 const SHELL = [
@@ -135,9 +135,8 @@ self.addEventListener('fetch', (e) => {
           })
           .catch(() => null);
         if (cached) {
-          // No se espera a la red: la pantalla pinta de inmediato.
-          e.waitUntil(bgRefresh);
-          return cached;
+          // Preferir versión actual en línea; conservar respaldo sin conexión.
+          return bgRefresh.then((res) => res || cached);
         }
         // 2) Sin copia (primera visita): se intenta la red con timeout, si no, shell.
         return bgRefresh
@@ -165,7 +164,7 @@ self.addEventListener('fetch', (e) => {
           })
           .catch(() => cached);
         // Con copia: instantáneo. Sin copia: se espera a la red (con timeout).
-        return cached || refresh.then((res) => res || cached);
+        return isOwnFile ? refresh.then((res) => res || cached) : (cached || refresh.then((res) => res || cached));
       })
     );
   }
