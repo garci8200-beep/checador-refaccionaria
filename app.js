@@ -516,7 +516,8 @@ function getColeccion(tipo) {
     'user': 'usuarios',
     'config': 'configuracion',
     'sys_file': 'archivos_sistema',
-    'attendance': 'asistencias'
+    'attendance': 'asistencias',
+    'schedule_authorization': 'autorizaciones_horario'
   };
   return map[tipo] || 'registros_generales';
 }
@@ -1149,6 +1150,7 @@ function getUsers() {
       id: u.id, username: u.name, password: u.code, role: u.status || 'cashier', name: u.description || u.name, raw: u, isDefault: idx !== -1,
       disabled: u.disabled === true,
       sched_enabled: u.sched_enabled === true, sched_start: u.sched_start || '', sched_end: u.sched_end || '',
+      weekly_schedule: u.weekly_schedule || null,
       leave_days: Array.isArray(u.leave_days) ? u.leave_days.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(String(d))) : (Array.isArray(u.permiso_fechas) ? u.permiso_fechas.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(String(d))) : []),
       kitchen_id: u.kitchen_id || ''
     };
@@ -1243,12 +1245,12 @@ function render() {
     case 'admin-attendance-dash':
       renderAdminShell(renderAttendanceDash);
       break;
+    case 'admin-schedule-authorizations':
+      renderAdminShell(renderScheduleAuthorizations);
+      break;
     case 'admin-users':
       renderAdminShell(renderUsersAdmin);
       break;
-      case 'admin-horarios':
-  renderAdminShell(renderAutorizacionesHorario);
-  break;
     case 'admin-settings':
       renderAdminShell(renderSettings);
       break;
@@ -1609,8 +1611,8 @@ function renderAdminShell(contentFn) {
   const allNavItems = [
     { id:'admin-attendance', icon:'fingerprint', label:'Checador Empleados', sec:'Personal' },
     { id:'admin-attendance-dash', icon:'layout-dashboard', label:'Dashboard Asistencia', sec:'Personal' },
+    { id:'admin-schedule-authorizations', icon:'clock-4', label:'Autorizaciones de horario', sec:'Personal' },
     { id:'admin-users', icon:'users', label:'Usuarios', sec:'Sistema' },
-    { id:'admin-horarios', icon:'calendar-clock', label:'Autorizaciones de horario', sec:'Personal' },
     { id:'admin-settings', icon:'settings', label:'Config', sec:'Sistema' },
   ];
   // Orden personalizado del cliente (Config → Orden del Menú)
@@ -1650,17 +1652,17 @@ function renderAdminShell(contentFn) {
   if (currentUser && currentUser.role === 'admin' && Array.isArray(userPerms) && userPerms.length >= 14) {
       if (!userPerms.includes('admin-attendance')) userPerms = [...userPerms, 'admin-attendance'];
       if (!userPerms.includes('admin-attendance-dash')) userPerms = [...userPerms, 'admin-attendance-dash'];
+      if (!userPerms.includes('admin-schedule-authorizations')) userPerms = [...userPerms, 'admin-schedule-authorizations'];
+  }
+  // Todos los usuarios con rol administrador pueden gestionar autorizaciones.
+  if (currentUser && currentUser.role === 'admin' && !userPerms.includes('admin-schedule-authorizations')) {
+    userPerms = [...userPerms, 'admin-schedule-authorizations'];
   }
   // Checador: sin acceso a vistas admin ni reportes (solo su kiosco checker-view)
   if (currentUser && currentUser.role === 'attendance') {
     userPerms = [];
   }
-// Permitir autorizaciones de horario a administradores
-if (currentUser && currentUser.role === 'admin') {
-  if (!userPerms.includes('admin-horarios')) {
-    userPerms = [...userPerms, 'admin-horarios'];
-  }
-}
+
   // Filtramos las pestañas que puede ver (+ sin modo restaurante se ocultan mesas/cocina/propinas/pedidos)
   let navItems = allNavItems.filter(n => userPerms.includes(n.id));
 
@@ -1922,12 +1924,23 @@ window.animateCountUpAll = (root) => {
     });
   } catch (e) {}
 };
-function attendanceSchedFor(username) {
-  try {
-    const u = getUsers().find(x => x.username === username);
-    if (u && u.sched_enabled && u.sched_start) return u.sched_start;
-    return '09:00';
-  } catch (e) { return '09:00'; }
+// Jornada semanal: 0=domingo (inhábil), 1..5=L-V, 6=sábado.
+function attendanceDaySchedule(username, dateValue = new Date()) {
+  const d = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  const day = d.getDay();
+  if (day === 0) return { off: true, start: '', end: '' };
+  const u = getUsers().find(x => String(x.username) === String(username));
+  const defaults = day === 6 ? {start:'08:30',end:'14:30'} : {start:'08:30',end:'16:30'};
+  const custom = u && u.weekly_schedule && u.weekly_schedule[String(day)];
+  if (custom) return { off: !!custom.off, start: custom.start || defaults.start, end: custom.end || defaults.end };
+  // Para usuarios existentes, conservar horario anterior de lunes a viernes;
+  // el sábado usa su jornada especial salvo que se configure individualmente.
+  if (u && u.sched_enabled && day !== 6 && u.sched_start && u.sched_end)
+    return {off:false,start:u.sched_start,end:u.sched_end};
+  return {off:false,...defaults};
+}
+function attendanceSchedFor(username, dateValue = new Date()) {
+  return attendanceDaySchedule(username, dateValue).start;
 }
 function attendanceTolerance() {
   try {
@@ -1961,7 +1974,11 @@ function attendanceIsLate(check_inISO, username) {
     if (isNaN(d)) return false;
     // Día con permiso: nunca cuenta como retardo
     try { const ds = attLocalDateStr(d); if (attendanceIsExcused(username, ds)) return false; } catch (_e) {}
-    const sched = attendanceSchedFor(username);
+    const dateKey = attLocalDateStr(d);
+    const latePermits = records('schedule_authorization').filter(a => a.employee_username === username && a.work_date === dateKey && a.authorization_kind === 'late');
+    if (latePermits.some(a => /^\d{2}:\d{2}$/.test(a.authorized_time) &&
+      d.getHours()*60+d.getMinutes() <= Number(a.authorized_time.slice(0,2))*60+Number(a.authorized_time.slice(3,5)))) return false;
+    const sched = attendanceSchedFor(username, d);
     const m = String(sched || '').match(/^(\d{1,2}):(\d{2})/);
     if (!m) return false;
     const mins = d.getHours() * 60 + d.getMinutes();
@@ -1996,6 +2013,7 @@ window.attendanceClockIn = async (username, method) => {
   const uname = String(username || '').trim();
   if (!uname) return;
   if (attendanceOpenFor(uname)) { showToast('Ya tiene entrada abierta', 'warn'); return; }
+  if (attendanceDaySchedule(uname).off) { showToast('Hoy es día inhábil para este empleado', 'warn'); return; }
   const us = attendanceFichables();
   const emp = us.find(u => u.username === uname) || (typeof getUsers === 'function' ? getUsers().find(u => u.username === uname) : null);
   const iso = new Date().toISOString();
@@ -2013,7 +2031,7 @@ window.attendanceClockIn = async (username, method) => {
     method_out: '',
     note_in: '',
     note_out: '',
-    sched_ref: attendanceSchedFor(uname),
+    sched_ref: attendanceSchedFor(uname, new Date()),
     status: 'open',
     date_created: iso
   };
@@ -2520,6 +2538,89 @@ function renderAttendanceAdmin(container) {
   const gotoDash = container.querySelector('#att-goto-dash');
   if (gotoDash) gotoDash.onclick = () => { currentView = 'admin-attendance-dash'; try { localStorage.setItem('pos_view', currentView); } catch (e) {} render(); };
 }
+// ========== AUTORIZACIONES DE HORARIO (solo administradores) ==========
+// Los registros son independientes del fichaje: el QR sigue registrando la hora REAL.
+// Una autorización justifica la diferencia, pero nunca altera las marcas originales.
+function renderScheduleAuthorizations(container) {
+  if (!currentUser || currentUser.role !== 'admin') {
+    container.textContent = 'Solo un administrador puede gestionar autorizaciones.';
+    return;
+  }
+  const esc = window.escHtml;
+  const users = attendanceFichables().filter(u => u.role === 'employee' || (u.role !== 'admin' && u.role !== 'attendance'));
+  const auths = records('schedule_authorization').slice().sort((a,b) => String(b.date_created || '').localeCompare(String(a.date_created || '')));
+  const today = attLocalDateStr(new Date());
+  const rows = auths.map(a => {
+    const sameDay = getAttendanceRecords().filter(r => r.employee_username === a.employee_username && r.date === a.work_date && r.check_out);
+    const last = sameDay.sort((x,y) => String(y.check_out).localeCompare(String(x.check_out)))[0];
+    const real = last ? attTime24(last.check_out) : 'Sin salida registrada';
+    const kind = a.authorization_kind === 'late' ? 'Entrada tardía' : (a.authorization_kind === 'early' ? 'Salida temprana' : 'Horas extra');
+    return `<tr class="border-b border-card/60"><td class="p-3">${esc(a.work_date)}</td><td class="p-3 font-semibold">${esc(a.employee_name || a.employee_username)}</td><td class="p-3">${esc(kind)}</td><td class="p-3">${esc(a.authorized_time)}</td><td class="p-3">${esc(real)}</td><td class="p-3 max-w-[230px] break-words">${esc(a.reason)}</td><td class="p-3">${esc(a.authorized_by)}</td></tr>`;
+  }).join('');
+  container.innerHTML = `
+    <div class="fade-in space-y-5 pb-10">
+      <div><h2 class="text-xl font-bold flex items-center gap-2"><i data-lucide="clock-4" class="w-6 h-6 text-accent"></i> Autorizaciones de horario</h2>
+      <p class="text-xs text-muted mt-1">Solo administradores. Las entradas y salidas por QR conservan su hora real; aquí se documentan las excepciones autorizadas, incluso después del fichaje.</p></div>
+      <form id="schedule-auth-form" class="bg-card/30 border border-card rounded-2xl p-4 space-y-4">
+        <h3 class="font-bold text-sm">Nueva autorización</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="text-xs font-semibold space-y-1 block">Empleado
+            <select name="employee" required class="w-full bg-surface border border-card rounded-lg p-2.5 text-sm"><option value="">Seleccionar empleado</option>${users.map(u => `<option value="${esc(u.username)}">${esc(u.name || u.username)} (@${esc(u.username)})</option>`).join('')}</select>
+          </label>
+          <label class="text-xs font-semibold space-y-1 block">Fecha de trabajo
+            <input name="work_date" type="date" value="${today}" required class="w-full bg-surface border border-card rounded-lg p-2.5 text-sm">
+          </label>
+          <label class="text-xs font-semibold space-y-1 block">Tipo de autorización
+            <select name="kind" required class="w-full bg-surface border border-card rounded-lg p-2.5 text-sm"><option value="late">Entrada tardía</option><option value="early">Salida temprana</option><option value="extension">Horas extra</option></select>
+          </label>
+          <label class="text-xs font-semibold space-y-1 block">Hora autorizada (entrada o salida)
+            <input name="authorized_time" type="time" required class="w-full bg-surface border border-card rounded-lg p-2.5 text-sm">
+          </label>
+        </div>
+        <label class="text-xs font-semibold space-y-1 block">Motivo / justificación
+          <textarea name="reason" maxlength="500" required rows="3" placeholder="Explica el motivo de la autorización" class="w-full bg-surface border border-card rounded-lg p-2.5 text-sm"></textarea>
+        </label>
+        <button type="submit" class="bg-accent text-white font-bold px-4 py-2.5 rounded-lg text-sm">Guardar autorización</button>
+      </form>
+      <div class="bg-card/30 border border-card rounded-2xl overflow-hidden">
+        <div class="p-4 font-bold text-sm">Historial de autorizaciones (${auths.length})</div>
+        <div class="overflow-x-auto"><table class="w-full text-xs text-left min-w-[850px]"><thead class="bg-card/60"><tr><th class="p-3">Fecha</th><th class="p-3">Empleado</th><th class="p-3">Tipo</th><th class="p-3">Hora autorizada</th><th class="p-3">Salida real (QR)</th><th class="p-3">Motivo</th><th class="p-3">Autorizó</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="p-5 text-center text-muted">Todavía no hay autorizaciones.</td></tr>'}</tbody></table></div>
+      </div>
+    </div>`;
+  if (window.lucide) { try { window.lucide.createIcons(); } catch (e) {} }
+  const form = container.querySelector('#schedule-auth-form');
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (!currentUser || currentUser.role !== 'admin') return showToast('Acceso exclusivo de administradores', 'error');
+    const fd = new FormData(form);
+    const username = String(fd.get('employee') || '');
+    const employee = users.find(u => u.username === username);
+    const date = String(fd.get('work_date') || '');
+    const kind = String(fd.get('kind') || '');
+    const time = String(fd.get('authorized_time') || '');
+    const reason = String(fd.get('reason') || '').trim();
+    if (!employee || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^(late|early|extension)$/.test(kind) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason) {
+      return showToast('Completa todos los datos de la autorización', 'warn');
+    }
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled = true;
+    try {
+      const result = await dbSdk.create({
+        type: 'schedule_authorization', employee_username: username,
+        employee_name: employee.name || username, work_date: date,
+        authorization_kind: kind, authorized_time: time, reason,
+        authorized_by: currentUser.username, date_created: new Date().toISOString()
+      });
+      if (!result || !result.isOk) throw new Error('No se confirmó el guardado');
+      showToast('Autorización guardada correctamente', 'success');
+      render();
+    } catch (err) {
+      showToast('No se pudo guardar la autorización', 'error');
+      btn.disabled = false;
+    }
+  };
+}
+
 // ========== DASHBOARD ASISTENCIA (segundo Dashboard: historial + resumen + reportes Excel/PDF) ==========
 // El QR de cada empleado se genera en Usuarios (columna Gafete QR). Aquí no hay QR para mantener el operativo limpio.
 function renderAttendanceDash(container) {
@@ -3075,114 +3176,11 @@ function renderCheckerView() {
     render();
   };
 }
-// ========== AUTORIZACIONES DE HORARIO ==========
-let autorizacionesHorario = [];
-try {
-  onSnapshot(collection(db, 'autorizaciones_horario'), (snapshot) => {
-    autorizacionesHorario = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (currentView === 'admin-horarios' && currentUser?.role === 'admin') {
-      const list = document.getElementById('aut-lista');
-      if (list) pintarAutorizacionesHorario(list);
-    }
-  }, err => console.error('Error leyendo autorizaciones:', err));
-} catch (e) { console.error('Error inicializando autorizaciones:', e); }
-
-function pintarAutorizacionesHorario(list) {
-  list.replaceChildren();
-  const items = [...autorizacionesHorario].sort((a,b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
-  if (!items.length) { list.textContent = 'Todavía no hay autorizaciones registradas.'; return; }
-  items.forEach(a => {
-    const row = document.createElement('div');
-    row.className = 'p-3 border border-card rounded-lg bg-card/20 text-sm';
-    const title = document.createElement('div'); title.className = 'font-semibold';
-    title.textContent = `${a.empleado_nombre || a.empleado} · ${a.fecha} · ${a.hora}`;
-    const detail = document.createElement('div'); detail.className = 'text-muted mt-1';
-    detail.textContent = `${a.tipo === 'anticipada' ? 'Salida anticipada' : 'Extensión de horario'} · ${a.motivo || ''}`;
-    row.append(title, detail); list.appendChild(row);
-  });
-}
-
-function renderAutorizacionesHorario(container) {
-  if (!currentUser || currentUser.role !== 'admin') {
-    container.textContent = 'Acceso restringido: solo administradores.';
-    return;
-  }
-  container.innerHTML = `
-    <div class="fade-in space-y-5 max-w-3xl">
-      <h2 class="text-xl font-bold">Autorizaciones de horario</h2>
-      <form id="form-autorizacion-horario" class="bg-surface rounded-xl p-5 border border-card space-y-4">
-        <h3 class="font-semibold">Nueva autorización</h3>
-        <label class="block text-sm">Empleado
-          <select id="aut-empleado" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required>
-            <option value="">Seleccionar empleado</option>
-          </select>
-        </label>
-        <label class="block text-sm">Fecha
-          <input id="aut-fecha" type="date" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required>
-        </label>
-        <label class="block text-sm">Tipo de autorización
-          <select id="aut-tipo" class="block w-full mt-1 bg-card border border-card rounded-lg p-3">
-            <option value="anticipada">Salida anticipada</option>
-            <option value="extension">Extensión de horario</option>
-          </select>
-        </label>
-        <label class="block text-sm">Hora autorizada de salida (08:00–19:00)
-          <input id="aut-hora" type="time" min="08:00" max="19:00" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required>
-        </label>
-        <label class="block text-sm">Motivo
-          <textarea id="aut-motivo" rows="3" maxlength="500" class="block w-full mt-1 bg-card border border-card rounded-lg p-3" required></textarea>
-        </label>
-        <button id="aut-guardar" type="submit" class="bg-blue-600 text-white px-5 py-3 rounded-lg">Guardar autorización</button>
-        <p id="aut-aviso" class="text-sm" role="status"></p>
-      </form>
-      <div class="bg-surface rounded-xl p-5 border border-card space-y-3">
-        <h3 class="font-semibold">Autorizaciones registradas</h3>
-        <div id="aut-lista" class="space-y-2"></div>
-      </div>
-    </div>`;
-  const selector = container.querySelector('#aut-empleado');
-  getUsers().filter(u => u.role === 'employee').forEach(u => {
-    const option = document.createElement('option');
-    option.value = u.username; option.textContent = u.name || u.username;
-    selector.appendChild(option);
-  });
-  const fecha = container.querySelector('#aut-fecha');
-  const localNow = new Date();
-  fecha.value = `${localNow.getFullYear()}-${String(localNow.getMonth()+1).padStart(2,'0')}-${String(localNow.getDate()).padStart(2,'0')}`;
-  pintarAutorizacionesHorario(container.querySelector('#aut-lista'));
-  container.querySelector('#form-autorizacion-horario').onsubmit = async (e) => {
-    e.preventDefault();
-    const hora = container.querySelector('#aut-hora').value;
-    const motivo = container.querySelector('#aut-motivo').value.trim();
-    const aviso = container.querySelector('#aut-aviso');
-    if (hora < '08:00' || hora > '19:00') { aviso.textContent = 'La hora debe estar entre 08:00 y 19:00.'; return; }
-    if (!selector.value || !fecha.value || !motivo) { aviso.textContent = 'Completa todos los campos.'; return; }
-    const btn = container.querySelector('#aut-guardar'); btn.disabled = true;
-    aviso.textContent = 'Guardando...';
-    try {
-      await addDoc(collection(db, 'autorizaciones_horario'), {
-        empleado: selector.value,
-        empleado_nombre: selector.selectedOptions[0]?.textContent || selector.value,
-        fecha: fecha.value,
-        tipo: container.querySelector('#aut-tipo').value,
-        hora, motivo,
-        autorizado_por: currentUser.username,
-        creado_en: new Date().toISOString()
-      });
-      aviso.textContent = 'Autorización guardada correctamente.';
-      container.querySelector('#aut-motivo').value = '';
-      container.querySelector('#aut-hora').value = '';
-    } catch (err) {
-      console.error('Error al guardar autorización', err);
-      aviso.textContent = 'No se pudo guardar. Revisa conexión y permisos de Firestore.';
-    } finally { btn.disabled = false; }
-  };
-}
 // ========== USERS ADMIN ==========
 function renderUsersAdmin(container) {
   const allUsers = getUsers();
   let editingUser = null;
-  let editingLeaveDays = [];1609
+  let editingLeaveDays = [];
   let leaveCalCursor = new Date();
   leaveCalCursor.setDate(1);
 
@@ -3270,7 +3268,13 @@ function renderUsersAdmin(container) {
       <input id="u-sched-end" type="time" value="19:00" class="bg-card border border-card rounded-lg px-3 py-2 text-sm focus:border-accent focus:outline-none">
     </div>
   </div>
-  <p class="text-[11px] text-muted mt-1" id="u-sched-note">Fuera de ese horario no podrá iniciar sesión (acepta turno nocturno, ej. 22:00–06:00). El admin principal siempre entra.</p>
+  <div id="u-weekly-schedule" class="hidden mt-3 border border-card rounded-xl p-3">
+  <p class="text-xs font-bold mb-2">Horario individual por día (lunes a sábado)</p>
+  <div class="grid grid-cols-[90px_1fr_1fr_55px] gap-2 text-[11px] text-muted mb-2"><span>Día</span><span>Entrada</span><span>Salida</span><span>Descanso</span></div>
+  ${[['1','Lunes'],['2','Martes'],['3','Miércoles'],['4','Jueves'],['5','Viernes'],['6','Sábado']].map(([n,label])=>`<div class="grid grid-cols-[90px_1fr_1fr_55px] gap-2 items-center mb-2"><span class="text-xs">${label}</span><input type="time" data-week-start="${n}" value="08:30" class="w-full min-w-0 bg-card border border-card rounded-lg p-1 text-xs"><input type="time" data-week-end="${n}" value="${n==='6'?'14:30':'16:30'}" class="w-full min-w-0 bg-card border border-card rounded-lg p-1 text-xs"><input type="checkbox" data-week-off="${n}" class="mx-auto"></div>`).join('')}
+  <p class="text-xs text-muted mt-2">Domingo: inhábil para todos (no editable).</p>
+</div>
+<p class="text-[11px] text-muted mt-1" id="u-sched-note">Fuera de ese horario no podrá iniciar sesión (acepta turno nocturno, ej. 22:00–06:00). El admin principal siempre entra.</p>
 </div>
 <div class="w-full mt-4 border-t border-card pt-3" id="leave-container">
   <div class="flex flex-wrap items-center gap-2 mb-1">
@@ -3414,6 +3418,8 @@ function renderUsersAdmin(container) {
     const schedNote = document.getElementById('u-sched-note');
     const schedFrom = document.getElementById('u-sched-from-label');
     const schedTo = document.getElementById('u-sched-to-label');
+    const weekBox = document.getElementById('u-weekly-schedule');
+    if (weekBox) weekBox.classList.toggle('hidden', rol !== 'employee');
     if (rol === 'employee') {
       if (schedTitle) schedTitle.textContent = 'Horario de trabajo (entrada y salida)';
       if (schedFrom) schedFrom.textContent = 'Entrada';
@@ -3440,6 +3446,19 @@ function renderUsersAdmin(container) {
     box.classList.toggle('flex', e.target.checked);
   };
 
+  function setWeeklyScheduleInputs(user) {
+    const w = user && user.weekly_schedule;
+    for (let day = 1; day <= 6; day++) {
+      const fallback = day === 6 ? {start:'08:30',end:'14:30'} : {start:'08:30',end:'16:30'};
+      const legacy = user && user.sched_enabled && day !== 6 && user.sched_start && user.sched_end
+        ? {start:user.sched_start,end:user.sched_end} : fallback;
+      const v = w && w[String(day)] || legacy;
+      document.querySelector(`[data-week-start="${day}"]`).value = v.start || fallback.start;
+      document.querySelector(`[data-week-end="${day}"]`).value = v.end || fallback.end;
+      document.querySelector(`[data-week-off="${day}"]`).checked = !!v.off;
+    }
+  }
+  setWeeklyScheduleInputs(null);
   // ===== MINI CALENDARIO DE PERMISOS (días que no cuentan falta ni retardo) =====
   const leaveGrid = () => document.getElementById('u-leave-grid');
   const leaveTitle = () => document.getElementById('u-leave-title');
@@ -3541,6 +3560,7 @@ function renderUsersAdmin(container) {
 
       // Horario guardado del usuario
       document.getElementById('u-sched-enabled').checked = !!editingUser.sched_enabled;
+      setWeeklyScheduleInputs(editingUser);
       document.getElementById('u-sched-start').value = editingUser.sched_start || '09:00';
       document.getElementById('u-sched-end').value = editingUser.sched_end || '18:00';
       document.getElementById('u-sched-times').classList.toggle('hidden', !editingUser.sched_enabled);
@@ -3645,6 +3665,7 @@ function renderUsersAdmin(container) {
     document.getElementById('u-role').dispatchEvent(new Event('change'));
     document.querySelectorAll('input[name="u-perm"]').forEach(cb => cb.checked = true);
     // Reset de horario
+    setWeeklyScheduleInputs(null);
     document.getElementById('u-sched-times').classList.add('hidden');
     document.getElementById('u-sched-times').classList.remove('flex');
 
@@ -3723,6 +3744,20 @@ function renderUsersAdmin(container) {
     leaveDaysToSave = Array.from(new Set(leaveDaysToSave.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(String(d))))).sort();
   } catch (_e) { try { leaveDaysToSave = editingLeaveDays.slice(); } catch (__e) { leaveDaysToSave = []; } }
 
+  const weeklySchedule = {};
+  if (role === 'employee') {
+    for (let day = 1; day <= 6; day++) {
+      const start = document.querySelector(`[data-week-start="${day}"]`).value;
+      const end = document.querySelector(`[data-week-end="${day}"]`).value;
+      const off = document.querySelector(`[data-week-off="${day}"]`).checked;
+      if (!off && (!start || !end || start >= end)) {
+        showToast('Revisa las horas del día ' + day + ': la salida debe ser posterior a la entrada', 'warn');
+        btn.disabled = false; btn.textContent = editingUser ? 'Guardar cambios' : 'Agregar';
+        return;
+      }
+      weeklySchedule[String(day)] = {start, end, off};
+    }
+  }
   const data = {
     type: 'user',
     name: username,
@@ -3745,6 +3780,7 @@ function renderUsersAdmin(container) {
     sales_total: 0,
     permissions: permissions,
     sched_enabled: schedOn,
+    weekly_schedule: role === 'employee' ? weeklySchedule : (editingUser && editingUser.weekly_schedule || null),
     sched_start: schedOn ? (document.getElementById('u-sched-start').value || '09:00') : '',
     sched_end: schedOn ? (document.getElementById('u-sched-end').value || '18:00') : '',
     leave_days: leaveDaysToSave,
@@ -4016,7 +4052,7 @@ function renderSettings(container) {
 // (Punto de venta / caja eliminado: solo checador y asistencia)
 // ========== ESCUCHA MULTICAJA EN TIEMPO REAL (OPTIMIZADA) ==========
 
-const coleccionesCatalogos = ['usuarios', 'configuracion', 'archivos_sistema', 'asistencias'];
+const coleccionesCatalogos = ['usuarios', 'configuracion', 'archivos_sistema', 'asistencias', 'autorizaciones_horario'];
 
 coleccionesCatalogos.forEach(colName => {
   onSnapshot(collection(db, colName), procesarSnapshot);

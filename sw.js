@@ -1,6 +1,6 @@
 
 
-const VERSION = 'posfn-v47';
+const VERSION = 'posfn-v48';
 const CACHE = 'posfn-shell-' + VERSION;
 
 const SHELL = [
